@@ -1,14 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
+import { ValidationPipe, Logger, BadRequestException, INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response-transform.interceptor';
+import { ExpressAdapter } from '@nestjs/platform-express';
+import express, { Express } from 'express';
 
-async function bootstrap() {
-  const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
-
+export function configureApp(app: INestApplication) {
   // Enable CORS for frontend communication
   app.enableCors({
     origin: [
@@ -21,10 +20,10 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
-  // Global exception filter for unified error format { success: false, status, error: { message, details } }
+  // Global exception filter for unified error format
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // Global response interceptor for unified success format { success: true, status, data }
+  // Global response interceptor for unified success format
   app.useGlobalInterceptors(new ResponseTransformInterceptor());
 
   // Global DTO validation pipe with formatted nested error extraction
@@ -70,10 +69,33 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
+}
+
+// Local standalone server bootstrap (runs on npm run start:dev / start:prod)
+async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
+  configureApp(app);
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
   logger.log(`Server is running on: http://localhost:${port}`);
 }
 
-bootstrap();
+// Only listen on port if NOT running in Vercel serverless environment
+if (!process.env.VERCEL) {
+  bootstrap();
+}
+
+// Serverless handler for Vercel
+let cachedServer: Express;
+export default async function handler(req: any, res: any) {
+  if (!cachedServer) {
+    const server = express();
+    const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
+    configureApp(app);
+    await app.init();
+    cachedServer = server;
+  }
+  return cachedServer(req, res);
+}
