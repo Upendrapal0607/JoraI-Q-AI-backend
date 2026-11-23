@@ -35,20 +35,21 @@ function syncSchema() {
 
   if (fs.existsSync(schemaPath)) {
     let schema = fs.readFileSync(schemaPath, 'utf8');
-    const dsRegex = /datasource\s+db\s*\{[\s\S]*?provider\s*=\s*"([^"]+)"/;
-    const match = schema.match(dsRegex);
-    const currentProvider = match ? match[1] : null;
+    const dsRegex = /datasource\s+db\s*\{[\s\S]*?\}/;
+    const currentBlock = schema.match(dsRegex);
 
-    if (currentProvider !== targetProvider) {
-      console.log(`[db-sync] Updating datasource db provider from '${currentProvider}' to '${targetProvider}'...`);
-      schema = schema.replace(
-        /datasource\s+db\s*\{([\s\S]*?)provider\s*=\s*"[^"]+"/,
-        `datasource db {$1provider = "${targetProvider}"`
-      );
+    const postgresBlock = `datasource db {\n  provider  = "postgresql"\n  url       = env("DATABASE_URL")\n  directUrl = env("DIRECT_URL")\n}`;
+    const sqliteBlock = `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}`;
+
+    const targetBlock = isPostgres ? postgresBlock : sqliteBlock;
+
+    if (currentBlock && currentBlock[0].trim() !== targetBlock.trim()) {
+      console.log(`[db-sync] Updating datasource db block to '${targetProvider}'...`);
+      schema = schema.replace(dsRegex, targetBlock);
       fs.writeFileSync(schemaPath, schema, 'utf8');
-      console.log(`[db-sync] schema.prisma provider set to '${targetProvider}'.`);
+      console.log(`[db-sync] schema.prisma datasource block updated for '${targetProvider}'.`);
     } else {
-      console.log(`[db-sync] schema.prisma provider already matched: '${targetProvider}'.`);
+      console.log(`[db-sync] schema.prisma datasource already configured for '${targetProvider}'.`);
     }
   }
 }
