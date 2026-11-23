@@ -95,43 +95,42 @@ export class AttemptsService {
     const accuracy = Math.round((correctAnswers / totalQuestions) * 1000) / 10;
     const score = correctAnswers;
 
-    // 5. Transactional record creation
-    const attempt = await this.prisma.$transaction(async (tx) => {
-      const createdAttempt = await tx.quizAttempt.create({
-        data: {
-          assignmentId: assignment.id,
-          quizId: quiz.id,
-          studentId,
-          totalQuestions,
-          correctAnswers,
-          incorrectAnswers,
-          score,
-          accuracy,
-          submittedAt: new Date(),
-        },
-      });
-
-      for (const ans of answerRecords) {
-        await tx.attemptAnswer.create({
+    // 5. Transactional record creation with atomic nested answer creation
+    const attempt = await this.prisma.$transaction(
+      async (tx) => {
+        const createdAttempt = await tx.quizAttempt.create({
           data: {
-            attemptId: createdAttempt.id,
-            questionId: ans.questionId,
-            selectedOptionId: ans.selectedOptionId,
-            isCorrect: ans.isCorrect,
+            assignmentId: assignment.id,
+            quizId: quiz.id,
+            studentId,
+            totalQuestions,
+            correctAnswers,
+            incorrectAnswers,
+            score,
+            accuracy,
+            submittedAt: new Date(),
+            answers: {
+              create: answerRecords.map((ans) => ({
+                questionId: ans.questionId,
+                selectedOptionId: ans.selectedOptionId,
+                isCorrect: ans.isCorrect,
+              })),
+            },
           },
         });
-      }
 
-      await tx.quizAssignment.update({
-        where: { id: assignment.id },
-        data: {
-          status: 'COMPLETED',
-          completedAt: new Date(),
-        },
-      });
+        await tx.quizAssignment.update({
+          where: { id: assignment.id },
+          data: {
+            status: 'COMPLETED',
+            completedAt: new Date(),
+          },
+        });
 
-      return createdAttempt;
-    });
+        return createdAttempt;
+      },
+      { timeout: 15000 },
+    );
 
     return this.getAttemptResult(attempt.id, studentId, Role.STUDENT);
   }

@@ -24,39 +24,26 @@ export class QuizzesService {
       }
     }
 
-    const quiz = await this.prisma.$transaction(async (tx) => {
-      const createdQuiz = await tx.quiz.create({
-        data: {
-          title: dto.title.trim(),
-          description: dto.description?.trim() || null,
-          teacherId,
-        },
-      });
-
-      for (let qIdx = 0; qIdx < dto.questions.length; qIdx++) {
-        const qDto = dto.questions[qIdx];
-        const question = await tx.question.create({
-          data: {
-            quizId: createdQuiz.id,
+    // Create quiz with questions and options in a single optimized nested write
+    const quiz = await this.prisma.quiz.create({
+      data: {
+        title: dto.title.trim(),
+        description: dto.description?.trim() || null,
+        teacherId,
+        questions: {
+          create: dto.questions.map((qDto, qIdx) => ({
             text: qDto.text.trim(),
             order: qIdx,
-          },
-        });
-
-        for (let oIdx = 0; oIdx < qDto.options.length; oIdx++) {
-          const oDto = qDto.options[oIdx];
-          await tx.option.create({
-            data: {
-              questionId: question.id,
-              text: oDto.text.trim(),
-              isCorrect: oDto.isCorrect,
-              order: oIdx,
+            options: {
+              create: qDto.options.map((oDto, oIdx) => ({
+                text: oDto.text.trim(),
+                isCorrect: oDto.isCorrect,
+                order: oIdx,
+              })),
             },
-          });
-        }
-      }
-
-      return createdQuiz;
+          })),
+        },
+      },
     });
 
     return this.getQuizDetailsForTeacher(quiz.id, teacherId);
